@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Coleção de "admins": guarda { uid: '...', admin: true } — usada p/ o painel.
+    // Perigo: apenas ADMIN pode criar/atualizar admins (via console) e READ é admin-only.
+    match /admins/{uid} {
+      allow read: if isAdmin();
+      allow write: if false; // cria apenas manualmente no Console
+    }
+
+    // users: o usuário anônimo cria o próprio doc (id = auth.uid) e atualiza name/lastSeen.
+    // Leitura só p/ admin (acho que ninguém mais deve listar usuários).
+    match /users/{uid} {
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+      allow read: if isAdmin();
+      allow delete: if false;
+    }
+
+    // sessions / errors: qualquer usuário logado (anônimo) pode criar.
+    match /sessions/{id} {
+      allow create: if request.auth != null;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /errors/{id} {
+      allow create: if request.auth != null;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.admin == true;
+    }
+  }
+}
