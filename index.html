@@ -155,18 +155,16 @@ function signIn(){
   });
 }
 
+var OWNER_UID = "PHdDffbZc1ZjfgguBQoSKEHvJ273";
 function checkAdmin(user){
-  return db.collection('admins').doc(user.uid).get()
-    .then(function(snap){ return snap.exists && snap.data().admin === true; });
+  // Dono fixo por UID — não depende de documento no Firestore
+  return Promise.resolve(user.uid === OWNER_UID);
 }
 
 function setUserUI(user){
   if(!user){ show('view-login', true); show('view-dash', false); show('view-deny', false); $('btn-login').classList.remove('hidden'); $('btn-logout').classList.add('hidden'); $('who').textContent='Não autenticado'; return; }
   $('who').textContent = 'Logado como: '+user.email+' ('+user.uid+')';
-  checkAdmin(user).then(null, function(err){
-    show('view-login', false); show('view-dash', false); show('view-deny', true);
-    $('deny-hint').textContent = 'Seu UID: '+user.uid + ' — não foi possível validar admin (' + (err && err.message ? err.message : 'erro') + '). Confira se as Rules foram publicadas.';
-  }).then(function(isAdmin){
+  checkAdmin(user).then(function(isAdmin){
     if(!isAdmin){
       show('view-login', false); show('view-dash', false); show('view-deny', true);
       $('deny-hint').textContent = 'Seu UID: '+user.uid;
