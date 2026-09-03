@@ -142,8 +142,17 @@ function todayRange(){ var s=new Date(); s.setHours(0,0,0,0); return { start:s.g
 function show(el, on){ $(el).classList.toggle('hidden', !on); }
 
 function signIn(){
-  auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider())
-    .catch(function(e){ alert('Falha no login: '+e.message); });
+  var provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(function(e){
+    // se o popup for bloqueado, cai para redirect
+    if (e && e.code === 'auth/popup-blocked') {
+      auth.signInWithRedirect(provider).catch(function(e2){
+        alert('Falha no login: '+e2.message);
+      });
+    } else {
+      alert('Falha no login: '+e.message);
+    }
+  });
 }
 
 function checkAdmin(user){
@@ -269,7 +278,13 @@ function renderUsage(){
   });
 }
 
-auth.getRedirectResult().catch(function(e){ /* continua via onAuthStateChanged */ });
+auth.getRedirectResult().catch(function(e){
+  // se um redirect falhou, mostra o motivo (evita "preso no login" sem explicação)
+  if (e && e.code !== 'auth/no-current-user') {
+    var userEl = $('who');
+    userEl.textContent = 'Erro no login: ' + (e.message || e.code);
+  }
+});
 auth.onAuthStateChanged(function(user){ setUserUI(user); });
 $('btn-login').onclick=signIn; $('btn-login2').onclick=signIn;
 $('btn-logout').onclick=function(){ auth.signOut(); };
