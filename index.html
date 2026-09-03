@@ -109,7 +109,9 @@ select, input { background: rgba(255,255,255,.08); border: 1px solid rgba(255,25
 
   <div class="center hidden" id="view-deny">
     <h2>Acesso negado</h2>
-    <p class="sub" style="margin-bottom:20px">Esta conta não é do dono do app.</p>
+    <p class="sub" style="margin-bottom:20px">Esta conta não está marcada como admin no Firestore.<br><br>
+      <b id="deny-hint" style="color:#c4b5fd"></b><br><br>
+      No Console Firebase, crie a coleção <b>admins</b> com um documento de ID igual ao seu UID (abaixo) e os campos <b>admin = true</b> e <b>uid</b> = seu UID. Depois toque em <b>Atualizar</b>.</p>
     <button class="btn" id="btn-deny-out">Sair</button>
   </div>
 </div>
@@ -153,10 +155,13 @@ function checkAdmin(user){
 function setUserUI(user){
   if(!user){ show('view-login', true); show('view-dash', false); show('view-deny', false); $('btn-login').classList.remove('hidden'); $('btn-logout').classList.add('hidden'); $('who').textContent='Não autenticado'; return; }
   $('who').textContent = 'Logado como: '+user.email+' ('+user.uid+')';
-  checkAdmin(user).then(function(isAdmin){
+  checkAdmin(user).then(null, function(err){
+    show('view-login', false); show('view-dash', false); show('view-deny', true);
+    $('deny-hint').textContent = 'Seu UID: '+user.uid + ' — não foi possível validar admin (' + (err && err.message ? err.message : 'erro') + '). Confira se as Rules foram publicadas.';
+  }).then(function(isAdmin){
     if(!isAdmin){
       show('view-login', false); show('view-dash', false); show('view-deny', true);
-      auth.signOut();
+      $('deny-hint').textContent = 'Seu UID: '+user.uid;
       return;
     }
     show('view-login', false); show('view-deny', false); show('view-dash', true);
