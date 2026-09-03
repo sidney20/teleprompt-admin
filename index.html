@@ -142,8 +142,7 @@ function todayRange(){ var s=new Date(); s.setHours(0,0,0,0); return { start:s.g
 function show(el, on){ $(el).classList.toggle('hidden', !on); }
 
 function signIn(){
-  auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
-    .then(function(){ })
+  auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider())
     .catch(function(e){ alert('Falha no login: '+e.message); });
 }
 
@@ -270,6 +269,7 @@ function renderUsage(){
   });
 }
 
+auth.getRedirectResult().catch(function(e){ /* continua via onAuthStateChanged */ });
 auth.onAuthStateChanged(function(user){ setUserUI(user); });
 $('btn-login').onclick=signIn; $('btn-login2').onclick=signIn;
 $('btn-logout').onclick=function(){ auth.signOut(); };
