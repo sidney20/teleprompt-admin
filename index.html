@@ -176,35 +176,39 @@ function setUserUI(user){
   });
 }
 
-var state = { users:{}, recToday:0, errToday:0 };
+var state = { users:{}, recToday:0, errToday:0, sessions:{}, errors:[] };
+var liveStarted = false;
 
-function loadAll(){
-  var loaded = 0, total = 4;
-  function done(){ loaded++; if(loaded>=total){ renderOverview(); renderUsers(); renderErrors(); renderUsage(); $('lastupdate').textContent='Atualizado: '+new Date().toLocaleTimeString(); } }
-  loadUsers(done);
-  loadSessions(done);
-  loadErrors(done);
-  if(loaded>=total) done();
-}
-
-function loadUsers(cb){
-  db.collection('users').get().then(function(snap){
+function startLive(){
+  if (liveStarted) { renderAll(); return; }
+  liveStarted = true;
+  // Tempo real: qualquer novo registro/uso/erro aparece sozinho
+  db.collection('users').onSnapshot(function(snap){
     state.users={};
     snap.forEach(function(d){ var u=d.data(); u.id=d.id; state.users[d.id]=u; });
-  }).catch(function(){}).then(cb);
-}
-function loadSessions(cb){
-  var t=todayRange();
-  db.collection('sessions').get().then(function(snap){
-    state.recToday=0;
-    snap.forEach(function(d){ var s=d.data(); if(s.action==='record' && s.ts>=t.start) state.recToday++; });
-  }).catch(function(){}).then(cb);
-}
-function loadErrors(cb){
-  var t=todayRange(); state.errToday=0; state.errors=[];
-  db.collection('errors').orderBy('ts','desc').limit(300).get().then(function(snap){
+    renderAll();
+  }, function(){});
+  db.collection('sessions').onSnapshot(function(snap){
+    var t=todayRange(); state.recToday=0; state.sessions={};
+    snap.forEach(function(d){ var s=d.data(); s.id=d.id; state.sessions[d.id]=s; if(s.action==='record' && s.ts>=t.start) state.recToday++; });
+    renderAll();
+  }, function(){});
+  db.collection('errors').orderBy('ts','desc').limit(300).onSnapshot(function(snap){
+    var t=todayRange(); state.errToday=0; state.errors=[];
     snap.forEach(function(d){ var e=d.data(); e.id=d.id; state.errors.push(e); if(e.ts>=t.start) state.errToday++; });
-  }).catch(function(){}).then(cb);
+    renderAll();
+  }, function(){});
+}
+
+function renderAll(){
+  if(!$('view-dash').classList.contains('hidden')){
+    renderOverview(); renderUsers(); renderErrors(); renderUsage();
+    $('lastupdate').textContent='Atualizado: '+new Date().toLocaleTimeString();
+  }
+}
+
+function loadAll(){
+  startLive();
 }
 
 function renderOverview(){
@@ -263,17 +267,15 @@ function renderErrors(){
 }
 function renderUsage(){
   var byDay={};
-  db.collection('sessions').get().then(function(snap){
-    snap.forEach(function(d){ var s=d.data(); var k=Math.floor((s.ts||0)/86400000); if(!byDay[k]) byDay[k]={rec:0,open:0}; if(s.action==='record') byDay[k].rec++; else byDay[k].open++; });
-    var labels=[],rec=[],opens=[];
-    for(var i=20;i>=0;i--){ var k=Math.floor((Date.now()-i*86400000)/86400000); var b=byDay[k]||{rec:0,open:0}; var d=new Date(k*86400000); labels.push(d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})); rec.push(b.rec); opens.push(b.open); }
-    var ctx=$('chart').getContext('2d');
-    if(chart) chart.destroy();
-    chart=new Chart(ctx,{ type:'line', data:{ labels:labels, datasets:[
-      {label:'Gravações', data:rec, borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,.15)', tension:.3, fill:true},
-      {label:'Aberturas', data:opens, borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.12)', tension:.3, fill:true}
-    ]}, options:{ plugins:{legend:{labels:{color:'#c4b5fd'}}}, scales:{ x:{ticks:{color:'#9ca3af'}}, y:{ticks:{color:'#9ca3af'}, beginAtZero:true} } } });
-  });
+  for(var id in state.sessions){ var s=state.sessions[id]; var k=Math.floor((s.ts||0)/86400000); if(!byDay[k]) byDay[k]={rec:0,open:0}; if(s.action==='record') byDay[k].rec++; else byDay[k].open++; }
+  var labels=[],rec=[],opens=[];
+  for(var i=20;i>=0;i--){ var k=Math.floor((Date.now()-i*86400000)/86400000); var b=byDay[k]||{rec:0,open:0}; var d=new Date(k*86400000); labels.push(d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})); rec.push(b.rec); opens.push(b.open); }
+  var ctx=$('chart').getContext('2d');
+  if(chart) chart.destroy();
+  chart=new Chart(ctx,{ type:'line', data:{ labels:labels, datasets:[
+    {label:'Gravações', data:rec, borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,.15)', tension:.3, fill:true},
+    {label:'Aberturas', data:opens, borderColor:'#10b981', backgroundColor:'rgba(16,185,129,.12)', tension:.3, fill:true}
+  ]}, options:{ plugins:{legend:{labels:{color:'#c4b5fd'}}}, scales:{ x:{ticks:{color:'#9ca3af'}}, y:{ticks:{color:'#9ca3af'}, beginAtZero:true} } } });
 }
 
 auth.getRedirectResult().catch(function(e){
