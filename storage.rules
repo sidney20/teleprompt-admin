@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Screenshots enviados pelo usuário: o próprio pode escrever; só o dono lê.
+    match /screenshots/{userId}/{fileName} {
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null &&
+        request.auth.uid == 'PHdDffbZc1ZjfgguBQoSKEHvJ273';
+      allow delete: if false;
+    }
+  }
+}

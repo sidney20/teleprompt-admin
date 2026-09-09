@@ -1,13 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Único dono (UID fixo do painel). Ninguém mais lê nada.
+    // Único dono (UID fixo do painel).
     function isOwner() {
       return request.auth != null &&
         request.auth.uid == 'PHdDffbZc1ZjfgguBQoSKEHvJ273';
     }
 
-    // users: o usuário anônimo cria o próprio doc (id = uid) e atualiza name/lastSeen.
+    // users: o usuário anônimo cria o próprio doc (id = uid) e atualiza name/lastSeen/device_id.
     // Apenas o dono pode ler.
     match /users/{uid} {
       allow create, update: if request.auth != null && request.auth.uid == uid;
@@ -25,6 +25,27 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow read: if isOwner();
       allow update, delete: if false;
+    }
+
+    // messages: usuário lê/escreve as próprias; dono lê/escreve de todos.
+    match /messages/{id} {
+      allow create: if request.auth != null &&
+        (request.resource.data.userId == request.auth.uid || isOwner());
+      allow read: if isOwner() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow update: if isOwner() ||
+        (request.auth != null && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff().affectedKeys().hasOnly(['read']));
+      allow delete: if false;
+    }
+
+    // support_messages: usuário cria o próprio; dono lê e atualiza o status.
+    match /support_messages/{id} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if isOwner() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow update: if isOwner() ||
+        (request.auth != null && resource.data.userId == request.auth.uid &&
+         request.resource.data.diff().affectedKeys().hasOnly(['status']));
+      allow delete: if false;
     }
   }
 }

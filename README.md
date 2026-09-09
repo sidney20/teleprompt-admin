@@ -1,6 +1,9 @@
 # TelePrompT · Painel do Dono
 
-Painel exclusivo (protegido por login Google + regra "admin") para acompanhar o uso do app TelePrompT.
+Painel exclusivo (protegido por login Google + regra de owner) para acompanhar o uso do app TelePrompT.
+
+> O owner é definido por UID fixo no código (`OWNER_UID`). Se for trocar o dono, edite essa constante e o
+> UID nas regras do Firestore/Storage.
 
 ## Setup no Console Firebase (deshboard-d3f4a)
 
@@ -9,27 +12,36 @@ Painel exclusivo (protegido por login Google + regra "admin") para acompanhar o 
    - **Anônimo** (o app grava uso sem cadastro).
    - **Google** (você entra no painel).
 3. **Firestore → Rules** → colar o conteúdo de `firestore.rules` (neste repo) e **Publicar**.
-4. **Criar sua conta de admin** (é assim que o painel sabe que "você é o dono"):
+4. **Storage → Rules** → colar o conteúdo de `storage.rules` e **Publicar** (guarda screenshots do suporte).
 
-   - Abra o painel publicado → "Entrar com Google".
-   - Pegue seu `uid` onde? No **Authentication → Users** (coluna UID) após logar uma vez; ou no console do navegador com `firebase.auth().currentUser.uid`.
-   - No **Firestore → admins** crie um documento com **id = seu UID** e conteúdo: `{ uid: "<SEU-UID>", admin: true }`.
-   - Logado de novo no painel, você será reconhecido como admin e verá os dados.
+## O que o painel mostra
 
-   > Importante: sem esse documento em `admins`, o painel bloqueia o acesso (regra `isAdmin()`).
-
-## O que o painel mostra (MVP)
-
-- **Visão geral**: usuários totais, ativos hoje, gravações hoje, erros hoje + tabela de usuários.
-- **Usuários**: lista completa; clicar abre ficha (aparelho, tela, RAM, erros).
+- **Visão geral**: usuários totais, ativos hoje, gravações hoje, erros hoje; tabela com **status online** (bolinha: verde <5min, âmbar 5–30min, vermelho >30min) e badge de **mensagens não lidas**.
+- **Usuários**: lista completa com status; clicar abre o **modal do usuário** com:
+  - aparelho parseado (OS, modelo, navegador), UID e device ID;
+  - stats (gravações, tempo gravado, erros, mensagens, status);
+  - **linha do tempo** (sessões, gravações, erros);
+  - **chat** em tempo real com o usuário (enviar mensagens; não lidas ficam como badge no app).
+- **Mensagens**: mensagens recebidas pelos usuários no chat do app, com status Nova/Lida.
+- **Suporte**: solicitações com status (Nova, Lida, Respondida, Resolvida), filtro por status, screenshot anexado; responder abre o chat com o usuário.
 - **Erros**: erros recentes (JS, câmera, gravação) com filtro.
 - **Uso**: gráfico de gravações/aberturas por dia (últimos 21 dias).
 
 ## Coleções usadas pelo app
 
-| Coleção   | Quem cria                                    | Leitura   |
-|-----------|----------------------------------------------|-----------|
-| `users`   | usuário anônimo (doc id = uid do Firebase)   | só admin  |
-| `sessions`| usuário (abrir app, gravar)                  | só admin  |
-| `errors`  | usuário (onerror, câmera, rec)               | só admin  |
-| `admins`  | você, manualmente no Console                 | só admin  |
+| Coleção            | Quem cria                            | Leitura   |
+|--------------------|--------------------------------------|-----------|
+| `users`            | usuário anônimo (doc id = uid)       | só owner  |
+| `sessions`         | usuário (abrir, gravar + duration)   | só owner  |
+| `errors`           | usuário (onerror, câmera, rec)       | só owner  |
+| `messages`         | usuário e owner (chat)               | owner + dono da thread |
+| `support_messages` | usuário (suporte, com screenshot)    | owner + dono do pedido |
+
+Screenshots do suporte vão para o Storage em `screenshots/{uid}/...` (o usuário só escreve; só o owner lê).
+
+## App (lado do usuário)
+
+- **Validação de nome**: mínimo 3 letras, rejeita números/termos genéricos, normaliza (1ª maiúscula).
+- **Device ID**: UUID único gerado e guardado no localStorage (`teleprompt_device_id`); enviado em `users`, `sessions` e `errors`.
+- **Chat**: botão no leitor (💬) com badge de não lidas; mensagens do dono aparecem em tempo real.
+- **Suporte**: botão no leitor (✉) abre formulário com anexo opcional (screenshot → Storage).
