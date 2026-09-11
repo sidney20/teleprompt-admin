@@ -12,7 +12,6 @@ Painel exclusivo (protegido por login Google + regra de owner) para acompanhar o
    - **Anônimo** (o app grava uso sem cadastro).
    - **Google** (você entra no painel).
 3. **Firestore → Rules** → colar o conteúdo de `firestore.rules` (neste repo) e **Publicar**.
-4. **Storage → Rules** → colar o conteúdo de `storage.rules` e **Publicar** (guarda screenshots do suporte).
 
 ## O que o painel mostra
 
@@ -23,7 +22,7 @@ Painel exclusivo (protegido por login Google + regra de owner) para acompanhar o
   - **linha do tempo** (sessões, gravações, erros);
   - **chat** em tempo real com o usuário (enviar mensagens; não lidas ficam como badge no app).
 - **Mensagens**: mensagens recebidas pelos usuários no chat do app, com status Nova/Lida.
-- **Suporte**: solicitações com status (Nova, Lida, Respondida, Resolvida), filtro por status, screenshot anexado; responder abre o chat com o usuário.
+- **Suporte**: solicitações com status (Nova, Lida, Respondida, Resolvida), filtro por status; responder abre o chat com o usuário.
 - **Erros**: erros recentes (JS, câmera, gravação) com filtro.
 - **Uso**: gráfico de gravações/aberturas por dia (últimos 21 dias).
 
@@ -35,13 +34,11 @@ Painel exclusivo (protegido por login Google + regra de owner) para acompanhar o
 | `sessions`         | usuário (abrir, gravar + duration)   | só owner  |
 | `errors`           | usuário (onerror, câmera, rec)       | só owner  |
 | `messages`         | usuário e owner (chat)               | owner + dono da thread |
-| `support_messages` | usuário (suporte, com screenshot)    | owner + dono do pedido |
-
-Screenshots do suporte vão para o Storage em `screenshots/{uid}/...` (o usuário só escreve; só o owner lê).
+| `support_messages` | usuário (suporte)                       | owner + dono do pedido |
 
 ## App (lado do usuário)
 
 - **Validação de nome**: mínimo 3 letras, rejeita números/termos genéricos, normaliza (1ª maiúscula).
 - **Device ID**: UUID único gerado e guardado no localStorage (`teleprompt_device_id`); enviado em `users`, `sessions` e `errors`.
 - **Chat**: botão no leitor (💬) com badge de não lidas; mensagens do dono aparecem em tempo real.
-- **Suporte**: botão no leitor (✉) abre formulário com anexo opcional (screenshot → Storage).
+- **Suporte**: botão no leitor (✉) abre formulário de texto; o dono recebe e responde pelo chat.
