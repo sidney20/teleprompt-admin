@@ -188,7 +188,6 @@ select:focus, input:focus { border-color: rgba(139,92,246,.5); box-shadow: 0 0 0
 .support-card:hover { background: rgba(139,92,246,.1); transform: translateY(-1px); }
 .support-card .sc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .support-card .sc-msg { font-size: .84rem; margin-top: 8px; color: #e5e7eb; line-height: 1.5; white-space: pre-wrap; }
-.support-card img { max-width: 100%; max-height: 200px; border-radius: 10px; margin-top: 10px; border: 1px solid rgba(255,255,255,.1); }
 
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 .pulse { animation: pulse 1.2s ease-in-out infinite; }
@@ -334,7 +333,6 @@ select:focus, input:focus { border-color: rgba(139,92,246,.5); box-shadow: 0 0 0
     <div class="support-card" style="cursor:default">
       <div class="sc-top"><span class="badge" id="sm-status"></span><span class="muted" id="sm-time"></span></div>
       <div class="sc-msg" id="sm-msg"></div>
-      <div id="sm-shot"></div>
     </div>
     <div class="card" style="margin-top:12px">
       <h3 style="margin-bottom:6px">Responder no chat</h3>
@@ -354,7 +352,6 @@ select:focus, input:focus { border-color: rgba(139,92,246,.5); box-shadow: 0 0 0
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 var cfg = {
@@ -368,7 +365,6 @@ var cfg = {
 firebase.initializeApp(cfg);
 var auth = firebase.auth();
 var db = firebase.firestore();
-var storage = firebase.storage();
 var chart = null;
 
 function $(id){ return document.getElementById(id); }
@@ -640,8 +636,6 @@ function openSupport(s){
   $('sm-status').className='badge st-'+esc(s.status);
   $('sm-time').textContent=short(s.ts);
   $('sm-msg').textContent=s.message;
-  var shot=$('sm-shot'); shot.innerHTML='';
-  if(s.screenshot_url){ shot.innerHTML='<img src="'+esc(s.screenshot_url)+'" alt="screenshot">'; }
   $('sm-reply').value='';
   show('support-modal', true);
   if(s.status==='new'||s.status==='read'){ db.collection('support_messages').doc(s.id).update({status:'read'}).catch(function(){}); }
