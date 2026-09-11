@@ -587,8 +587,11 @@ function umSend(){
   var input=$('um-msg'); var text=(input.value||'').trim();
   if(!text||!activeUser) return;
   input.value='';
-  db.collection('messages').add({userId:activeUser, userName:(state.users[activeUser]||{}).name||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).catch(function(e){
-    alert('Falha ao enviar mensagem: ' + (e && e.message ? e.message : e));
+  db.collection('messages').add({userId:activeUser, userName:(state.users[activeUser]||{}).name||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).then(function(){
+    console.log('[chat] mensagem enviada para', activeUser);
+  }).catch(function(e){
+    console.error('[chat] falha:', e);
+    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)) + '\n\nVerifique se as regras do Firestore foram publicadas no Console Firebase.');
   });
 }
 $('um-send').onclick=umSend;
@@ -648,10 +651,14 @@ function supportSend(s){
   if(!text) return;
   input.value='';
   db.collection('support_messages').doc(s.id).update({status:'responded'}).catch(function(e){
-    alert('Falha ao atualizar status: ' + (e && e.message ? e.message : e));
+    console.error('[support] falha status:', e);
   });
-  db.collection('messages').add({userId:s.userId, userName:s.userName||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).catch(function(e){
-    alert('Falha ao enviar mensagem: ' + (e && e.message ? e.message : e));
+  db.collection('messages').add({userId:s.userId, userName:s.userName||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).then(function(){
+    console.log('[support] mensagem enviada para', s.userId);
+    alert('Mensagem enviada com sucesso!');
+  }).catch(function(e){
+    console.error('[support] falha:', e);
+    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)) + '\n\nVerifique se as regras do Firestore foram publicadas.');
   });
 }
 $('sm-close').onclick=function(){ show('support-modal', false); };
