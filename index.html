@@ -349,22 +349,12 @@ select:focus, input:focus { border-color: rgba(139,92,246,.5); box-shadow: 0 0 0
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
-var cfg = {
-  apiKey: "AIzaSyApv4v2RfUl1KZliiFzv1abJbyzdh6yH8s",
-  authDomain: "deshboard-d3f4a.firebaseapp.com",
-  projectId: "deshboard-d3f4a",
-  storageBucket: "deshboard-d3f4a.firebasestorage.app",
-  messagingSenderId: "337476542022",
-  appId: "1:337476542022:web:595640b2f99d5d2fddf447"
-};
-firebase.initializeApp(cfg);
-var auth = firebase.auth();
-var db = firebase.firestore();
+var SUPABASE_URL = 'https://winbijjsaawvmtmbluix.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable_Y8WYTANqEOQ5u2x4WXytGQ_1DQ03PLW';
+var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 var chart = null;
 
 function $(id){ return document.getElementById(id); }
@@ -375,32 +365,26 @@ function todayRange(){ var s=new Date(); s.setHours(0,0,0,0); return { start:s.g
 function show(el, on){ $(el).classList.toggle('hidden', !on); }
 
 function signIn(){
-  var provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(provider).catch(function(e){
-    // se o popup for bloqueado, cai para redirect
-    if (e && e.code === 'auth/popup-blocked') {
-      auth.signInWithRedirect(provider).catch(function(e2){
-        alert('Falha no login: '+e2.message);
-      });
-    } else {
-      alert('Falha no login: '+e.message);
-    }
+  supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + window.location.pathname }
+  }).catch(function(e){
+    alert('Falha no login: '+e.message);
   });
 }
 
 var OWNER_UID = "PHdDffbZc1ZjfgguBQoSKEHvJ273";
 function checkAdmin(user){
-  // Dono fixo por UID — não depende de documento no Firestore
-  return Promise.resolve(user.uid === OWNER_UID);
+  return Promise.resolve(user && user.id === OWNER_UID);
 }
 
 function setUserUI(user){
   if(!user){ show('view-login', true); show('view-dash', false); show('view-deny', false); $('btn-login').classList.remove('hidden'); $('btn-logout').classList.add('hidden'); $('who').textContent='Não autenticado'; return; }
-  $('who').textContent = 'Logado como: '+user.email+' ('+user.uid+')';
+  $('who').textContent = 'Logado como: '+(user.email||'?')+' ('+user.id+')';
   checkAdmin(user).then(function(isAdmin){
     if(!isAdmin){
       show('view-login', false); show('view-dash', false); show('view-deny', true);
-      $('deny-hint').textContent = 'Seu UID: '+user.uid;
+      $('deny-hint').textContent = 'Seu UID: '+user.id;
       return;
     }
     show('view-login', false); show('view-deny', false); show('view-dash', true);
@@ -414,15 +398,17 @@ var liveStarted = false;
 
 function ago(ts){
   if(!ts) return '–';
-  var s=Math.floor((Date.now()-ts)/1000);
+  var t=typeof ts==='number'?ts:new Date(ts).getTime();
+  var s=Math.floor((Date.now()-t)/1000);
   if(s<60) return 'agora mesmo';
   var m=Math.floor(s/60); if(m<60) return 'há '+m+' min';
   var h=Math.floor(m/60); if(h<24) return 'há '+h+'h';
   var d=Math.floor(h/24); return 'há '+d+'d';
 }
 function onlineStatus(u){
-  var last=u&&u.lastSeen; if(!last) return {cls:'off',label:'offline'};
-  var d=Date.now()-last;
+  var last=u&&u.last_seen; if(!last) return {cls:'off',label:'offline'};
+  var t=typeof last==='number'?last:new Date(last).getTime();
+  var d=Date.now()-t;
   if(d<5*60000) return {cls:'on',label:'online'};
   if(d<30*60000) return {cls:'away',label:'5–30min'};
   return {cls:'off',label:'>30min'};
@@ -431,32 +417,41 @@ function onlineStatus(u){
 function startLive(){
   if (liveStarted) { renderAll(); return; }
   liveStarted = true;
-  // Tempo real: qualquer novo registro/uso/erro aparece sozinho
-  db.collection('users').onSnapshot(function(snap){
-    state.users={};
-    snap.forEach(function(d){ var u=d.data(); u.id=d.id; state.users[d.id]=u; });
+  loadAll();
+  // Poll every 10 seconds for real-time feel
+  setInterval(loadAll, 10000);
+}
+
+async function loadAll(){
+  try {
+    var results = await Promise.all([
+      supabase.from('users').select('*').order('last_seen', { ascending: false }),
+      supabase.from('sessions').select('*').order('ts', { ascending: false }).limit(1000),
+      supabase.from('errors').select('*').order('ts', { ascending: false }).limit(300),
+      supabase.from('messages').select('*').order('ts', { ascending: false }).limit(400),
+      supabase.from('support_messages').select('*').order('ts', { ascending: false }).limit(200)
+    ]);
+    var t = todayRange();
+    state.users = {};
+    (results[0].data || []).forEach(function(u){ state.users[u.id] = u; });
+    state.sessions = {};
+    state.recToday = 0;
+    (results[1].data || []).forEach(function(s){
+      state.sessions[s.id] = s;
+      if(s.action === 'record' && new Date(s.ts).getTime() >= t.start) state.recToday++;
+    });
+    state.errors = [];
+    state.errToday = 0;
+    (results[2].data || []).forEach(function(e){
+      state.errors.push(e);
+      if(new Date(e.ts).getTime() >= t.start) state.errToday++;
+    });
+    state.messages = results[3].data || [];
+    state.support = results[4].data || [];
     renderAll();
-  }, function(){});
-  db.collection('sessions').onSnapshot(function(snap){
-    var t=todayRange(); state.recToday=0; state.sessions={};
-    snap.forEach(function(d){ var s=d.data(); s.id=d.id; state.sessions[d.id]=s; if(s.action==='record' && s.ts>=t.start) state.recToday++; });
-    renderAll();
-  }, function(){});
-  db.collection('errors').orderBy('ts','desc').limit(300).onSnapshot(function(snap){
-    var t=todayRange(); state.errToday=0; state.errors=[];
-    snap.forEach(function(d){ var e=d.data(); e.id=d.id; state.errors.push(e); if(e.ts>=t.start) state.errToday++; });
-    renderAll();
-  }, function(){});
-  db.collection('messages').orderBy('ts','desc').limit(400).onSnapshot(function(snap){
-    state.messages=[];
-    snap.forEach(function(d){ var m=d.data(); m.id=d.id; state.messages.push(m); });
-    renderAll();
-  }, function(){});
-  db.collection('support_messages').orderBy('ts','desc').limit(200).onSnapshot(function(snap){
-    state.support=[];
-    snap.forEach(function(d){ var s=d.data(); s.id=d.id; state.support.push(s); });
-    renderAll();
-  }, function(){});
+  } catch(e) {
+    console.error('loadAll error:', e);
+  }
 }
 
 function renderAll(){
@@ -466,26 +461,22 @@ function renderAll(){
   }
 }
 
-function loadAll(){
-  startLive();
-}
-
 function renderOverview(){
   $('st-users').textContent = Object.keys(state.users).length;
   var now=Date.now(), hr=3600000;
-  var active=0; for(var k in state.users){ var u=state.users[k]; if(u.lastSeen && (now-u.lastSeen)<24*hr) active++; }
+  var active=0; for(var k in state.users){ var u=state.users[k]; if(u.last_seen && (now-new Date(u.last_seen).getTime())<24*hr) active++; }
   $('st-active').textContent=active;
   $('st-rec').textContent=state.recToday;
   $('st-err').textContent=state.errToday;
   var tb=$('users-tbody'); tb.innerHTML='';
   var arr=Object.keys(state.users).map(function(k){return state.users[k];});
-  arr.sort(function(a,b){ return ((b.lastSeen||0)-(a.lastSeen||0)); });
+  arr.sort(function(a,b){ return ((new Date(b.last_seen||0).getTime())-(new Date(a.last_seen||0).getTime())); });
   arr.slice(0,20).forEach(function(u){
-    var nErr=state.errors.filter(function(e){return e.userId===u.id;}).length;
+    var nErr=state.errors.filter(function(e){return e.user_id===u.id;}).length;
     var st=onlineStatus(u);
-    var unread=state.messages.filter(function(m){return m.userId===u.id && m.from==='user' && !m.read;}).length;
+    var unread=state.messages.filter(function(m){return m.user_id===u.id && m.from_role==='user' && !m.read;}).length;
     var tr=document.createElement('tr'); tr.className='user-row';
-    tr.innerHTML='<td>'+esc(u.name)+' <span class="dot '+st.cls+'" title="'+esc(st.label)+'"></span>'+(unread?' <span class="badge badge-msg">'+unread+'</span>':'')+'</td><td>'+esc((u.ua||'').slice(0,40))+'</td><td>'+ago(u.lastSeen)+'</td><td><span class="badge '+(nErr?'bad-err':'bad-ok')+'">'+nErr+'</span></td>';
+    tr.innerHTML='<td>'+esc(u.name)+' <span class="dot '+st.cls+'" title="'+esc(st.label)+'"></span>'+(unread?' <span class="badge badge-msg">'+unread+'</span>':'')+'</td><td>'+esc((u.ua||'').slice(0,40))+'</td><td>'+ago(u.last_seen)+'</td><td><span class="badge '+(nErr?'bad-err':'bad-ok')+'">'+nErr+'</span></td>';
     tr.onclick=function(){ openUser(u.id); };
     tb.appendChild(tr);
   });
@@ -493,11 +484,11 @@ function renderOverview(){
 function renderUsers(){
   var el=$('users-full'); el.innerHTML='';
   var arr=Object.keys(state.users).map(function(k){return state.users[k];});
-  arr.sort(function(a,b){ return ((b.lastSeen||0)-(a.lastSeen||0)); });
+  arr.sort(function(a,b){ return ((new Date(b.last_seen||0).getTime())-(new Date(a.last_seen||0).getTime())); });
   var t='<table><thead><tr><th>Nome</th><th>Aparelho</th><th>Tela</th><th>RAM</th><th>1ª vez</th><th>Últ. atividade</th></tr></thead><tbody>';
   arr.forEach(function(u){
     var st=onlineStatus(u);
-    t+='<tr class="user-row" data-id="'+esc(u.id)+'"><td>'+esc(u.name)+' <span class="dot '+st.cls+'" title="'+esc(st.label)+'"></span></td><td>'+esc((u.ua||'').slice(0,70))+'</td><td>'+esc(u.screen||'')+'</td><td>'+(u.ram?u.ram+'GB':'–')+'</td><td>'+short(u.firstSeen)+'</td><td>'+ago(u.lastSeen)+'</td></tr>';
+    t+='<tr class="user-row" data-id="'+esc(u.id)+'"><td>'+esc(u.name)+' <span class="dot '+st.cls+'" title="'+esc(st.label)+'"></span></td><td>'+esc((u.ua||'').slice(0,70))+'</td><td>'+esc(u.screen||'')+'</td><td>'+(u.ram?u.ram+'GB':'–')+'</td><td>'+short(u.first_seen)+'</td><td>'+ago(u.last_seen)+'</td></tr>';
   });
   t+='</tbody></table>';
   el.innerHTML=t;
@@ -529,11 +520,11 @@ function openUser(uid){
   var dev=parseDevice(u.ua);
   $('um-name').innerHTML=esc(u.name)+' <span class="dot '+onlineStatus(u).cls+'"></span>';
   $('um-device').textContent='UID '+uid+' · '+esc(dev.os+(dev.model?' · '+dev.model:''))+' · '+esc(dev.browser);
-  var recs=Object.keys(state.sessions).filter(function(id){return state.sessions[id].userId===uid && state.sessions[id].action==='record';}).map(function(id){return state.sessions[id];});
+  var recs=Object.keys(state.sessions).filter(function(id){return state.sessions[id].user_id===uid && state.sessions[id].action==='record';}).map(function(id){return state.sessions[id];});
   var totalDur=recs.reduce(function(s,r){return s+(r.duration||0);},0);
-  var nErr=state.errors.filter(function(e){return e.userId===uid;}).length;
-  var msgs=state.messages.filter(function(m){return m.userId===uid;}).length;
-  var last=u.lastSeen||u.firstSeen||0;
+  var nErr=state.errors.filter(function(e){return e.user_id===uid;}).length;
+  var msgs=state.messages.filter(function(m){return m.user_id===uid;}).length;
+  var last=u.last_seen||u.first_seen||0;
   $('um-stats').innerHTML=
     '<div class="um-stat"><div class="n">'+recs.length+'</div><div class="l">Gravações</div></div>'+
     '<div class="um-stat"><div class="n">'+fmtDur(totalDur)+'</div><div class="l">Tempo gravado</div></div>'+
@@ -554,10 +545,11 @@ function renderTimeline(uid){
   var items=[];
   Object.keys(state.sessions).forEach(function(id){
     var s=state.sessions[id];
-    if(s.userId!==uid) return;
-    items.push({ts:s.ts||0, txt:(s.action==='record'?'Gravou vídeo'+(s.duration?' ('+fmtDur(s.duration)+')':''):'Abriu o app'), cls:s.action==='record'?'tt':'muted'});
+    if(s.user_id!==uid) return;
+    var ts=typeof s.ts==='number'?s.ts:new Date(s.ts).getTime();
+    items.push({ts:ts, txt:(s.action==='record'?'Gravou vídeo'+(s.duration?' ('+fmtDur(s.duration)+')':''):'Abriu o app'), cls:s.action==='record'?'tt':'muted'});
   });
-  state.errors.forEach(function(e){ if(e.userId===uid) items.push({ts:e.ts||0, txt:(e.type||'erro')+': '+(e.message||'').slice(0,60), cls:'t'}); });
+  state.errors.forEach(function(e){ if(e.user_id===uid){ var ts=typeof e.ts==='number'?e.ts:new Date(e.ts).getTime(); items.push({ts:ts, txt:(e.type||'erro')+': '+(e.message||'').slice(0,60), cls:'t'}); } });
   items.sort(function(a,b){return (b.ts-a.ts);});
   var el=$('um-timeline'); el.innerHTML='';
   if(!items.length){ el.innerHTML='<li class="muted">Sem atividade.</li>'; return; }
@@ -569,10 +561,14 @@ function renderTimeline(uid){
 }
 function renderChat(uid){
   var el=$('um-chat'); el.innerHTML='';
-  var msgs=state.messages.filter(function(m){return m.userId===uid;}).sort(function(a,b){return (a.ts-b.ts);});
+  var msgs=state.messages.filter(function(m){return m.user_id===uid;}).sort(function(a,b){
+    var ta=typeof a.ts==='number'?a.ts:new Date(a.ts).getTime();
+    var tb=typeof b.ts==='number'?b.ts:new Date(b.ts).getTime();
+    return (ta-tb);
+  });
   msgs.forEach(function(m){
     var div=document.createElement('div');
-    div.className='cb '+(m.from==='admin'?'admin':'user');
+    div.className='cb '+(m.from_role==='admin'?'admin':'user');
     div.innerHTML=esc(m.message)+'<span class="ct">'+short(m.ts)+'</span>';
     el.appendChild(div);
   });
@@ -580,18 +576,20 @@ function renderChat(uid){
   el.scrollTop=el.scrollHeight;
   // marca como lidas as mensagens do usuário
   state.messages.forEach(function(m){
-    if(m.userId===uid && m.from==='user' && !m.read){ db.collection('messages').doc(m.id).update({read:true}).catch(function(){}); }
+    if(m.user_id===uid && m.from_role==='user' && !m.read){
+      supabase.from('messages').update({read:true}).eq('id',m.id).catch(function(){});
+    }
   });
 }
 function umSend(){
   var input=$('um-msg'); var text=(input.value||'').trim();
   if(!text||!activeUser) return;
   input.value='';
-  db.collection('messages').add({userId:activeUser, userName:(state.users[activeUser]||{}).name||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).then(function(){
+  supabase.from('messages').insert({user_id:activeUser, user_name:(state.users[activeUser]||{}).name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(){
     console.log('[chat] mensagem enviada para', activeUser);
   }).catch(function(e){
     console.error('[chat] falha:', e);
-    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)) + '\n\nVerifique se as regras do Firestore foram publicadas no Console Firebase.');
+    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)));
   });
 }
 $('um-send').onclick=umSend;
@@ -601,15 +599,19 @@ $('user-modal').addEventListener('click', function(e){ if(e.target===this){ show
 
 function renderMessages(){
   var el=$('messages-list'); el.innerHTML='';
-  var unread=state.messages.filter(function(m){return m.from==='user' && !m.read;});
+  var unread=state.messages.filter(function(m){return m.from_role==='user' && !m.read;});
   var msgs=state.messages.slice();
-  msgs.sort(function(a,b){return (b.ts-a.ts);});
+  msgs.sort(function(a,b){
+    var ta=typeof a.ts==='number'?a.ts:new Date(a.ts).getTime();
+    var tb=typeof b.ts==='number'?b.ts:new Date(b.ts).getTime();
+    return (tb-ta);
+  });
   if(!msgs.length){ el.innerHTML='<div class="muted">Nenhuma mensagem ainda.</div>'; return; }
   var t='<table><thead><tr><th>Status</th><th>Usuário</th><th>Mensagem</th><th>Quando</th></tr></thead><tbody>';
   msgs.slice(0,80).forEach(function(m){
-    var who=state.users[m.userId]?state.users[m.userId].name:(m.userName||'?');
-    var st=m.from==='admin'?'Saiu':'<span class="badge '+(m.read?'':'badge-msg')+'">'+(m.read?'Lida':'Nova')+'</span>';
-    t+='<tr class="user-row" data-uid="'+esc(m.userId)+'"><td>'+st+'</td><td>'+esc(who)+'</td><td>'+esc(m.message)+'</td><td class="muted">'+ago(m.ts)+'</td></tr>';
+    var who=state.users[m.user_id]?state.users[m.user_id].name:(m.user_name||'?');
+    var st=m.from_role==='admin'?'Saiu':'<span class="badge '+(m.read?'':'badge-msg')+'">'+(m.read?'Lida':'Nova')+'</span>';
+    t+='<tr class="user-row" data-uid="'+esc(m.user_id)+'"><td>'+st+'</td><td>'+esc(who)+'</td><td>'+esc(m.message)+'</td><td class="muted">'+ago(m.ts)+'</td></tr>';
   });
   t+='</tbody></table>';
   el.innerHTML=t;
@@ -619,13 +621,18 @@ var supportSel=null;
 function renderSupport(){
   var f=$('support-filter').value;
   var el=$('support-list'); el.innerHTML='';
-  var arr=state.support.slice().sort(function(a,b){return (b.ts-a.ts);});
+  var arr=state.support.slice();
+  arr.sort(function(a,b){
+    var ta=typeof a.ts==='number'?a.ts:new Date(a.ts).getTime();
+    var tb=typeof b.ts==='number'?b.ts:new Date(b.ts).getTime();
+    return (tb-ta);
+  });
   if(f) arr=arr.filter(function(s){return s.status===f;});
   if(!arr.length){ el.innerHTML='<div class="muted">Nenhuma solicitação.</div>'; return; }
   arr.slice(0,80).forEach(function(s){
     var div=document.createElement('div');
     div.className='support-card';
-    div.innerHTML='<div class="sc-top"><b>'+esc(s.userName||(state.users[s.userId]?state.users[s.userId].name:'?'))+'</b>'+
+    div.innerHTML='<div class="sc-top"><b>'+esc(s.user_name||(state.users[s.user_id]?state.users[s.user_id].name:'?'))+'</b>'+
       '<span class="badge st-'+esc(s.status)+'">'+esc(s.status)+'</span></div>'+
       '<div class="sc-msg">'+esc(s.message)+'</div>'+'<div class="muted" style="margin-top:6px">'+ago(s.ts)+'</div>';
     div.onclick=function(){ openSupport(s); };
@@ -633,32 +640,32 @@ function renderSupport(){
   });
 }
 function openSupport(s){
-  $('sm-title').textContent='Suporte de '+esc(s.userName||'?');
-  $('sm-meta').textContent=s.userId?('UID '+s.userId):'';
+  $('sm-title').textContent='Suporte de '+esc(s.user_name||'?');
+  $('sm-meta').textContent=s.user_id?('UID '+s.user_id):'';
   $('sm-status').textContent=s.status;
   $('sm-status').className='badge st-'+esc(s.status);
   $('sm-time').textContent=short(s.ts);
   $('sm-msg').textContent=s.message;
   $('sm-reply').value='';
   show('support-modal', true);
-  if(s.status==='new'||s.status==='read'){ db.collection('support_messages').doc(s.id).update({status:'read'}).catch(function(){}); }
+  if(s.status==='new'||s.status==='read'){ supabase.from('support_messages').update({status:'read'}).eq('id',s.id).catch(function(){}); }
   $('sm-send').onclick=function(){ supportSend(s); };
   $('sm-reply').onkeydown=function(e){ if(e.key==='Enter') supportSend(s); };
-  $('sm-resolve').onclick=function(){ db.collection('support_messages').doc(s.id).update({status:'resolved'}).catch(function(){}); show('support-modal', false); };
+  $('sm-resolve').onclick=function(){ supabase.from('support_messages').update({status:'resolved'}).eq('id',s.id).catch(function(){}); show('support-modal', false); };
 }
 function supportSend(s){
   var input=$('sm-reply'); var text=(input.value||'').trim();
   if(!text) return;
   input.value='';
-  db.collection('support_messages').doc(s.id).update({status:'responded'}).catch(function(e){
+  supabase.from('support_messages').update({status:'responded'}).eq('id',s.id).catch(function(e){
     console.error('[support] falha status:', e);
   });
-  db.collection('messages').add({userId:s.userId, userName:s.userName||'', from:'admin', message:text.slice(0,500), read:true, ts:Date.now()}).then(function(){
-    console.log('[support] mensagem enviada para', s.userId);
+  supabase.from('messages').insert({user_id:s.user_id, user_name:s.user_name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(){
+    console.log('[support] mensagem enviada para', s.user_id);
     alert('Mensagem enviada com sucesso!');
   }).catch(function(e){
     console.error('[support] falha:', e);
-    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)) + '\n\nVerifique se as regras do Firestore foram publicadas.');
+    alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)));
   });
 }
 $('sm-close').onclick=function(){ show('support-modal', false); };
@@ -673,14 +680,20 @@ function renderErrors(){
   if(!list.length){ el.innerHTML='<li class="muted">Nenhum erro.</li>'; return; }
   list.slice(0,60).forEach(function(e){
     var li=document.createElement('li');
-    var who=state.users[e.userId]?state.users[e.userId].name:'?';
+    var who=state.users[e.user_id]?state.users[e.user_id].name:'?';
     li.innerHTML='<span class="t">'+esc(e.type||'')+'</span> — '+esc(e.message||'')+' <span class="muted">· '+esc(who)+' · '+short(e.ts)+'</span>';
     el.appendChild(li);
   });
 }
 function renderUsage(){
   var byDay={};
-  for(var id in state.sessions){ var s=state.sessions[id]; var k=Math.floor((s.ts||0)/86400000); if(!byDay[k]) byDay[k]={rec:0,open:0}; if(s.action==='record') byDay[k].rec++; else byDay[k].open++; }
+  for(var id in state.sessions){
+    var s=state.sessions[id];
+    var ts=typeof s.ts==='number'?s.ts:new Date(s.ts).getTime();
+    var k=Math.floor(ts/86400000);
+    if(!byDay[k]) byDay[k]={rec:0,open:0};
+    if(s.action==='record') byDay[k].rec++; else byDay[k].open++;
+  }
   var labels=[],rec=[],opens=[];
   for(var i=20;i>=0;i--){ var k=Math.floor((Date.now()-i*86400000)/86400000); var b=byDay[k]||{rec:0,open:0}; var d=new Date(k*86400000); labels.push(d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})); rec.push(b.rec); opens.push(b.open); }
   var ctx=$('chart').getContext('2d');
@@ -691,17 +704,27 @@ function renderUsage(){
   ]}, options:{ plugins:{legend:{labels:{color:'#c4b5fd'}}}, scales:{ x:{ticks:{color:'#9ca3af'}}, y:{ticks:{color:'#9ca3af'}, beginAtZero:true} } } });
 }
 
-auth.getRedirectResult().catch(function(e){
-  // se um redirect falhou, mostra o motivo (evita "preso no login" sem explicação)
-  if (e && e.code !== 'auth/no-current-user') {
-    var userEl = $('who');
-    userEl.textContent = 'Erro no login: ' + (e.message || e.code);
+// Check if user is already logged in
+supabase.auth.getSession().then(function(res){
+  var session = res.data && res.data.session;
+  if (session && session.user) {
+    setUserUI(session.user);
+  } else {
+    setUserUI(null);
   }
 });
-auth.onAuthStateChanged(function(user){ setUserUI(user); });
+
+supabase.auth.onAuthStateChange(function(event, session){
+  if (session && session.user) {
+    setUserUI(session.user);
+  } else {
+    setUserUI(null);
+  }
+});
+
 $('btn-login').onclick=signIn; $('btn-login2').onclick=signIn;
-$('btn-logout').onclick=function(){ auth.signOut(); };
-$('btn-deny-out').onclick=function(){ auth.signOut(); };
+$('btn-logout').onclick=function(){ supabase.auth.signOut(); };
+$('btn-deny-out').onclick=function(){ supabase.auth.signOut(); };
 $('btn-refresh').onclick=loadAll;
 $('btn-filter').onclick=renderErrors;
 $('tabs').onclick=function(e){
