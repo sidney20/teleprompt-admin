@@ -585,8 +585,10 @@ function umSend(){
   var input=$('um-msg'); var text=(input.value||'').trim();
   if(!text||!activeUser) return;
   input.value='';
-  supabase.from('messages').insert({user_id:activeUser, user_name:(state.users[activeUser]||{}).name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(){
+  supabase.from('messages').insert({user_id:activeUser, user_name:(state.users[activeUser]||{}).name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(r){
     console.log('[chat] mensagem enviada para', activeUser);
+    if(r && r.data && r.data[0]) state.messages.push(r.data[0]);
+    renderChat(activeUser);
   }).catch(function(e){
     console.error('[chat] falha:', e);
     alert('Falha ao enviar: ' + (e && e.message ? e.message : JSON.stringify(e)));
@@ -660,8 +662,9 @@ function supportSend(s){
   supabase.from('support_messages').update({status:'responded'}).eq('id',s.id).catch(function(e){
     console.error('[support] falha status:', e);
   });
-  supabase.from('messages').insert({user_id:s.user_id, user_name:s.user_name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(){
+  supabase.from('messages').insert({user_id:s.user_id, user_name:s.user_name||'', from_role:'admin', message:text.slice(0,500), read:true}).then(function(r){
     console.log('[support] mensagem enviada para', s.user_id);
+    if(r && r.data && r.data[0]) state.messages.push(r.data[0]);
     alert('Mensagem enviada com sucesso!');
   }).catch(function(e){
     console.error('[support] falha:', e);
